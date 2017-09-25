@@ -1,0 +1,11 @@
+logs*
+ckpt*
+tmp/
+__pycache__/
+*.swp
+*.swn
+*.swo
+*.npy
+*.pz~
+*.py~
+*.pz
