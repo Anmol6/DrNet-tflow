@@ -107,12 +107,12 @@ def read_and_decode(filename_queue, batch_size,crop_height, crop_width, num_fram
     if frame_is_random:
         if(train_drnet):
             offset_first_image = tf.random_uniform(shape = [],minval = 0, maxval=num_framestf-max_steps-2,dtype=tf.int64)
-            offset_second_image = tf.random_uniform(shape = [],minval = offset_first_image+1, maxval=offset_first_image+max_steps,dtype=tf.int64)
-            offset_third_image = tf.random_uniform(shape = [],minval = offset_first_image+1, maxval=offset_first_image+max_steps,dtype=tf.int64)
+            #offset_second_image = tf.random_uniform(shape = [],minval = offset_first_image+1, maxval=offset_first_image+max_steps,dtype=tf.int64)
+            #offset_third_image = tf.random_uniform(shape = [],minval = offset_first_image+1, maxval=offset_first_image+max_steps,dtype=tf.int64)
 
-            frame_list = [offset_first_image, offset_second_image, offset_third_image]
-            video = tf.gather(video, indices=frame_list)
-                  
+            frame_list = tf.linspace(tf.cast(offset_first_image, tf.float32), tf.cast(offset_first_image+max_steps-1, tf.float32), max_steps)
+            video = tf.gather(video, indices = tf.cast(frame_list, tf.int64))
+            num_frames = max_steps      
         elif (rand_frame_list == None):
             rand_frame_index = tf.floor(num_frames_total*tf.random_uniform([1], minval = 0.0, maxval = 1.0))[0]
             rand_frame_index = tf.cast(rand_frame_index, tf.int64)
