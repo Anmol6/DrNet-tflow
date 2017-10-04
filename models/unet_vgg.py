@@ -33,10 +33,12 @@ import models.resnet_v2 as rv2
 from models.resnet18 import resnet_18 
 def lrelu(x, leak=0.2):
      #with tf.variable_scope(name):
-     f1 = 0.5 * (1 + leak)
-     f2 = 0.5 * (1 - leak)
-     return f1 * x + f2 * abs(x)
-def conv_conv_pool(input_, n_filters, training, name, filter_dims = (3,3),pool=True, pad_mode = 'same',activation=tf.nn.relu,pool_square_size = 2, no_act=False):
+     #f1 = 0.5 * (1 + leak)
+     #f2 = 0.5 * (1 - leak)
+     
+     #return f1 * x + f2 * abs(x)
+     return tf.maximum(x, x*leak)
+def conv_conv_pool(input_, n_filters, training, name, filter_dims = (3,3),pool=True, pad_mode = 'same',activation=tf.nn.relu,pool_square_size = 2, custom_activation=False):
     """{Conv -> BN -> RELU}x2 -> {Pool, optional}
 
     Args:
@@ -57,7 +59,7 @@ def conv_conv_pool(input_, n_filters, training, name, filter_dims = (3,3),pool=T
         for i, F in enumerate(n_filters):
             net = tf.layers.conv2d(net, F, filter_dims, activation=None, padding=pad_mode, name="conv_{}".format(i + 1))
             net = tf.layers.batch_normalization(net, training=training, name="bn_{}".format(i + 1))
-            if (no_act==False):
+            if (custom_activation==True):
                 net = activation(net, name="relu{}_{}".format(name, i + 1))
             else:
                 net=lrelu(net)
@@ -103,8 +105,9 @@ def upsampling_2D(tensor, name,reuse, size=(2, 2)):
     H_multi, W_multi = size
     target_H = H * H_multi
     target_W = W * W_multi
-    return tf.layers.conv2d_transpose(tensor, n_in, (3,3), strides=(2,2), name='upsampled_'+str(H)+'x'+str(W),     reuse=reuse,padding='SAME')
-    #return tf.image.resize_nearest_neighbor(tensor, (target_H, target_W), name="upsample_{}".format(name))
+    #return tf.layers.conv2d_transpose(tensor, n_in, (3,3), strides=(2,2), name='upsampled_'+str(name)+str(H)+'x'+str(W), reuse=reuse, padding='SAME')
+
+    return tf.image.resize_nearest_neighbor(tensor, (target_H, target_W), name="upsample_{}".format(name))
 
 
 def make_unet(X, training,n_channels = 3):
@@ -178,7 +181,7 @@ class Unet_models:
 
 
     def Ec(self, x, Ec_scope, reuse_Ec, training = True, make_Unet = False):     
-        
+        x = tf.expand_dims(x[:,:,:,0], axis=-1) #since only single frame image is being used 
         with tf.variable_scope(Ec_scope, reuse = reuse_Ec):
             #conv0_ec, pool0_ec = conv_conv_pool(x,[32,32],training, name=0) 
             pool_0_ec = x
@@ -190,7 +193,7 @@ class Unet_models:
             #conv6_ec, pool6_ec = conv_conv_pool(pool5_ec, [256, 512], training, name=6)
             #print(pool5_ec.get_shape())
             
-            conv6_ec = conv_conv_pool(pool5_ec, [self._size_embedding_c],training,filter_dims = (4,4), no_act = False, pool=False,pad_mode = 'valid',activation=tf.nn.tanh, name=6)
+            conv6_ec = conv_conv_pool(pool5_ec, [self._size_embedding_c],training,filter_dims = (4,4), custom_activation=True, pool=False,pad_mode = 'valid',activation=tf.nn.tanh, name=6)
             #conv8_ec = conv_conv_pool(pool7_ec, [512, self._size_embedding_c], activation = tf.nn.sigmoid, training=training, name=8,  pool = False,no_act=False)
             print('Content Encoding Shape')
             print(conv6_ec.get_shape())
