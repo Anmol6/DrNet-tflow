@@ -69,9 +69,9 @@ def train():
     frame_list = [k2, kp1, kc1, kc2]
        
  
-    video, label = reader.read_and_decode(filename_queue,bs,FLAGS.crop_height, FLAGS.crop_width,num_frames = 3, resized_height = FLAGS.resized_height, resized_width = FLAGS.resized_width, frame_is_random=True, rand_frame_list = FLAGS.max_steps, resize_image = True, crop_with_pad = True, rand_crop = False, resize_image_0=False, dataset = FLAGS.dataset, div_by_255 = True, max_steps = FLAGS.max_steps, train_drnet=True) #TODO 
+    video, label = reader.read_and_decode(filename_queue,bs,FLAGS.crop_height, FLAGS.crop_width,num_frames = 3, resized_height = FLAGS.resized_height, resized_width = FLAGS.resized_width, frame_is_random=True, rand_frame_list = FLAGS.max_steps, resize_image = True, crop_with_pad = True, rand_crop = False, resize_image_0=False, dataset = FLAGS.dataset, div_by_255 = True, max_steps = FLAGS.max_steps, train_drnet=True) 
     video_batch, label_batch = tf.train.shuffle_batch([video, label],
-    batch_size=int(FLAGS.num_gpus*bs),
+    batch_size=int(FLAGS.num_gpus*FLAGS.batch_size),
     num_threads=2,
     capacity=2000 + 3 * FLAGS.batch_size,
     min_after_dequeue=100)
@@ -86,7 +86,8 @@ def train():
     losses_Ep = []
     losses_Ec = []
     losses_D = []
-    
+    import ipdb
+    ipdb.set_trace()
     with tf.name_scope('drnet') as scope:    
         for i in range(FLAGS.num_gpus):
             reuse_flag = (i>0)
@@ -104,7 +105,6 @@ def train():
                 
                 #prepare batch to train C
                 hp1 = model.Ep(images_1,FLAGS.Ep_scope, reuse_Ep = reuse_flag) #INIT E_P
-                #hp1 = tf.concat([hp1, hp1],axis=0)
                 tf.summary.scalar('hp1',tf.reduce_mean(hp1))
                 tf.summary.histogram('hp1', hp1)                
 
@@ -112,9 +112,10 @@ def train():
                 hp4 = tf.concat([hp4[:bs_2], tf.reverse(hp4[bs_2:],axis=[0])],axis=0)#keep first half from same scene, permute second half
                 tf.summary.scalar('hp4', tf.reduce_mean(hp4))
                 tf.summary.histogram('hp4', hp4)
-                #C_batch = tf.squeeze(tf.concat([hp1, tf.stop_gradient(hp4)], axis = -1)) #stop gradient not really needed here nayway        
+                       
                 C_batch = tf.squeeze(tf.concat([hp1, hp4], axis = -1)) 
                 print(C_batch.shape) 
+                
                 #Get tower loss for C
                 C_target_npy = np.ones(shape = [FLAGS.batch_size,1])
                 C_target_npy[bs_2:,0] = 0
@@ -125,8 +126,7 @@ def train():
                                
                 tf.summary.scalar('Cout_duringtraining'+str(i), tf.reduce_mean(C_out))
                 tf.summary.histogram('C_training_output'+str(i), C_out)
-                #import ipdb
-                #ipdb.set_trace()
+                
                 loss_C = bce(C_out, C_target)
                 losses_C.append(loss_C)
 
@@ -134,96 +134,100 @@ def train():
                 C_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,scope=FLAGS.C_scope)
                 print_vars(C_vars)
 
-                total_loss_C = FLAGS.beta*tf.reduce_mean(losses_C)
-                tf.summary.scalar('total loss C', total_loss_C)
-                train_C = tf.train.AdamOptimizer(learning_rate=FLAGS.lr).minimize(total_loss_C, var_list  = C_vars)
-                with tf.control_dependencies([train_C]):
-                    #images to train everything else
-                    images_1_=video_batch_tower[:,0,:,:,:]
-                    images_2 = video_batch_tower[:,k2,:,:,:] 
-                    images_3 = video_batch_tower[:,kp1,:,:,:]
-                   
-                    
-                    #Prepare batch to train Ep
-                    hp3 = model.Ep(images_3, FLAGS.Ep_scope, reuse_Ep = True)
-                    hp2 = model.Ep(images_2, FLAGS.Ep_scope, reuse_Ep = True)
-                    tf.summary.scalar('hp2', tf.reduce_mean(hp2))                
-                    tf.summary.histogram('hp2', hp2)
-                    tf.summary.scalar('hp3', tf.reduce_mean(hp3))                
-                    tf.summary.histogram('hp3', hp3)
-
-                    C_batch_Ep = tf.squeeze(tf.concat([tf.stop_gradient(hp3), hp2], axis = -1)) 
-                    
-                     
-                    #Get tower loss of E_p
-                    C_target_Ep = tf.constant(0.5*np.ones(shape = [FLAGS.batch_size,1])) #maximize entropy
-                    with tf.variable_scope(FLAGS.C_scope,reuse = True):
-                        C_Ep_out = C(C_batch_Ep)
-                    tf.summary.scalar('Cout_duringEptraining'+str(i), tf.reduce_mean(C_Ep_out))
-                    tf.summary.histogram('Cout_during_Eptraining'+str(i), C_Ep_out)
-                    loss_Ep = bce(C_Ep_out,C_target_Ep)
-                    losses_Ep.append(loss_Ep)
-                    
-                   
-                                                           
-                    
-                                
-                    #Get tower loss of E_c
-                    Ec_out = model.Ec(images_1_, FLAGS.Ec_scope, reuse_Ec = reuse_flag) #use only 1 frame
-                    Ec_target = model.Ec(images_2,FLAGS.Ec_scope, reuse_Ec=True)
-                   
-                    tf.summary.scalar('Ec_target'+str(i), tf.reduce_mean(Ec_target))
-                                                   
-                    tf.summary.scalar('Ec_out'+str(i), tf.reduce_mean(Ec_out))
-                                                   
-                    #loss_Ec = tf.losses.mean_squared_error(Ec_out,tf.stop_gradient(Ec_target))
-                    loss_Ec = tf.losses.mean_squared_error(tf.stop_gradient(Ec_target), Ec_out)
-                    losses_Ec.append(loss_Ec)
-                                    
-
-                    #Get tower loss for D
-                    out,hc1_ = model.D_hp_given(images_1_, FLAGS.Ec_scope, True, hp2, FLAGS.D_scope, reuse_D = reuse_flag, n_channels=1)
-                    #import ipdb
-                    #ipdb.set_trace()
-                    loss_D = tf.losses.mean_squared_error(images_2[:,:,:,0], tf.squeeze(out))
-                    losses_D.append(loss_D)
-
+        total_loss_C = FLAGS.beta*tf.reduce_mean(losses_C)
+        tf.summary.scalar('total loss C', total_loss_C)
+        train_C = tf.train.AdamOptimizer(learning_rate=FLAGS.lr).minimize(total_loss_C, var_list  = C_vars)
+                
+        for i in range(FLAGS.num_gpus):
+            with tf.name_scope('tower_'+str(i)), tf.device('/gpu:' + str(i)), tf.control_dependencies([train_C]):
+                reuse_flag = (i>0)
+                print('GPU' + str(i))
+                video_batch_tower = tf.slice(video_batch, begin = [i*FLAGS.batch_size, 0,0,0,0], size = [FLAGS.batch_size,-1,-1,-1,-1])
                  
-                    print('Ep variables:')
-                    Ep_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,scope=FLAGS.Ep_scope)
-                    print_vars(Ep_vars)
+                #images to train everything else
+                images_1_=video_batch_tower[:,0,:,:,:]
+                images_2 = video_batch_tower[:,k2,:,:,:] 
+                images_3 = video_batch_tower[:,kp1,:,:,:]
+               
+                
+                #Prepare batch to train Ep
+                hp3 = model.Ep(images_3, FLAGS.Ep_scope, reuse_Ep = True)
+                hp2 = model.Ep(images_2, FLAGS.Ep_scope, reuse_Ep = True)
+                tf.summary.scalar('hp2', tf.reduce_mean(hp2))                
+                tf.summary.histogram('hp2', hp2)
+                tf.summary.scalar('hp3', tf.reduce_mean(hp3))                
+                tf.summary.histogram('hp3', hp3)
 
-                    print('Ec variables:')
-                    Ec_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,scope=FLAGS.Ec_scope)
-                    print_vars(Ec_vars)
-                    
-                    print('D variables:')
-                    D_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,scope=FLAGS.D_scope)
-                    print_vars(D_vars)
-                    
-                    print('DEVICES')            
-                    get_available_gpus()
-                    print('DONE building')
-                    
+                C_batch_Ep = tf.squeeze(tf.concat([tf.stop_gradient(hp3), hp2], axis = -1)) 
+                
+                 
+                #Get tower loss of E_p
+                C_target_Ep = tf.constant(0.5*np.ones(shape = [FLAGS.batch_size,1])) #maximize entropy
+                with tf.variable_scope(FLAGS.C_scope,reuse = True):
+                    C_Ep_out = C(C_batch_Ep)
+                tf.summary.scalar('Cout_duringEptraining'+str(i), tf.reduce_mean(C_Ep_out))
+                tf.summary.histogram('Cout_during_Eptraining'+str(i), C_Ep_out)
+                loss_Ep = bce(C_Ep_out,C_target_Ep)
+                losses_Ep.append(loss_Ep)
+                                           
+                
+                            
+                #Get tower loss of E_c
+                Ec_out = model.Ec(images_1_, FLAGS.Ec_scope, reuse_Ec = reuse_flag) #use only 1 frame
+                Ec_target = model.Ec(images_2,FLAGS.Ec_scope, reuse_Ec=True)
+               
+                tf.summary.scalar('Ec_target'+str(i), tf.reduce_mean(Ec_target))
+                tf.summary.scalar('Ec_out'+str(i), tf.reduce_mean(Ec_out))
+                                               
+                
+                #loss_Ec = tf.losses.mean_squared_error(Ec_out,tf.stop_gradient(Ec_target))
+                loss_Ec = tf.losses.mean_squared_error(tf.stop_gradient(Ec_target), Ec_out)
+                losses_Ec.append(loss_Ec)
+                                
 
-                    
-                    total_loss_Ep = FLAGS.beta_2*tf.reduce_mean(losses_Ep)
-                    tf.summary.scalar('total loss Ep', total_loss_Ep)
+                #Get tower loss for D
+                out,hc1_ = model.D_hp_given(images_1_, FLAGS.Ec_scope, True, hp2, FLAGS.D_scope, reuse_D = reuse_flag, n_channels=1)
+                #import ipdb
+                #ipdb.set_trace()
+                loss_D = tf.losses.mean_squared_error(images_2[:,:,:,0], tf.squeeze(out))
+                losses_D.append(loss_D)
 
-                    total_loss_Ec =FLAGS.alpha*tf.reduce_mean(losses_Ec)
-                    tf.summary.scalar('total loss Ec', total_loss_Ec)
+         
+        print('Ep variables:')
+        Ep_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,scope=FLAGS.Ep_scope)
+        print_vars(Ep_vars)
 
-                    total_loss_D = FLAGS.alpha_2*tf.reduce_mean(losses_D)
-                    tf.summary.scalar('total loss D', total_loss_D)
+        print('Ec variables:')
+        Ec_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,scope=FLAGS.Ec_scope)
+        print_vars(Ec_vars)
+        
+        print('D variables:')
+        D_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,scope=FLAGS.D_scope)
+        print_vars(D_vars)
+        
+        print('DEVICES')            
+        get_available_gpus()
+        print('DONE building')
+        
 
-                    with tf.control_dependencies([total_loss_Ep, total_loss_Ec, total_loss_D]):
-                        train_Ep = tf.train.AdamOptimizer(learning_rate=FLAGS.lr).minimize(total_loss_Ep, var_list = Ep_vars)
-                        train_Ec = tf.train.AdamOptimizer(learning_rate=FLAGS.lr).minimize(total_loss_Ec, var_list = Ec_vars)
-                        train_D = tf.train.AdamOptimizer(learning_rate=FLAGS.lr).minimize(total_loss_D, var_list = Ep_vars+Ec_vars+D_vars)
-                        if(FLAGS.adv_loss):
-                            train_ec_ep_d = tf.group(train_Ep, train_Ec, train_D)
-                        else:
-                            train_ec_ep_d = tf.group(train_Ec, train_D)
+        
+        total_loss_Ep = FLAGS.beta_2*tf.reduce_mean(losses_Ep)
+        tf.summary.scalar('total loss Ep', total_loss_Ep)
+
+        total_loss_Ec =FLAGS.alpha*tf.reduce_mean(losses_Ec)
+        tf.summary.scalar('total loss Ec', total_loss_Ec)
+
+        total_loss_D = FLAGS.alpha_2*tf.reduce_mean(losses_D)
+        tf.summary.scalar('total loss D', total_loss_D)
+
+        with tf.control_dependencies([total_loss_Ep, total_loss_Ec, total_loss_D]):
+            train_Ep = tf.train.AdamOptimizer(learning_rate=FLAGS.lr).minimize(total_loss_Ep, var_list = Ep_vars)
+            train_Ec = tf.train.AdamOptimizer(learning_rate=FLAGS.lr).minimize(total_loss_Ec, var_list = Ec_vars)
+            train_D = tf.train.AdamOptimizer(learning_rate=FLAGS.lr).minimize(total_loss_D, var_list = Ep_vars+Ec_vars+D_vars)
+            if(FLAGS.adv_loss):
+                train_ec_ep_d = tf.group(train_Ep, train_Ec, train_D)
+            else:
+                train_ec_ep_d = tf.group(train_Ec, train_D)
     
     dlEp_DEp = tf.gradients(total_loss_Ep, [hp2])
     dlD_DEp = tf.gradients(total_loss_D, [hp2])    
@@ -278,9 +282,7 @@ def train():
         i = 0    
         while not coord.should_stop(): 
             print('step '+str(i))
-            #import ipdb;    
-            #ipdb.set_trace()
-            
+                        
             # write summary
             if(i%FLAGS.log_freq==0):
                 print('Logging')
@@ -292,13 +294,13 @@ def train():
                 #ipdb.set_trace()
                 _, _,orig1, orig2, pred2 = sess.run([train_C, train_ec_ep_d, images_1_, images_2,out])
                 
-                np.save('tmp/npys/orig1_'+str(i)+'_'+FLAGS.run_name+'_.npy', orig1)
-                np.save('tmp/npys/orig2_'+str(i)+'_'+FLAGS.run_name+'_.npy', orig2)
-                np.save('tmp/npys/pred2_'+str(i)+'_'+FLAGS.run_name+'_.npy', pred2)
+                np.save('/mnt/AIDATA/home/anmol/DrNet-tflow/tmp/npys/orig1_'+str(i)+'_'+FLAGS.run_name+'_.npy', orig1)
+                np.save('/mnt/AIDATA/home/anmol/DrNet-tflow/tmp/npys/orig2_'+str(i)+'_'+FLAGS.run_name+'_.npy', orig2)
+                np.save('/mnt/AIDATA/home/anmol/DrNet-tflow/tmp/npys/pred2_'+str(i)+'_'+FLAGS.run_name+'_.npy', pred2)
                 #np.save('tmp/npys/orig2_shuffled_'+str(i)+'_'+FLAGS.run_name+'_.npy',orig2_shuffled)
-            
+                
             else:
-                 sess.run([train_C, train_ec_ep_d])
+                sess.run([train_C, train_ec_ep_d])
                 
             if(i%FLAGS.save_freq==0):
                 C_Saver.save(sess, ckptdir+ 'C/lol' ,global_step = i, write_meta_graph = False)
