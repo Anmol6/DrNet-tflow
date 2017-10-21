@@ -71,7 +71,8 @@ def conv_conv_pool(input_, n_filters, training, name, filter_dims = (3,3),pool=T
         return net, pool
 
 
-def upsample_concat(inputA, input_B, name, reuse, size = (2,2)):
+
+def upsample_concat(inputA, input_B, name, size = (2,2),reuse=True):
     """Upsample `inputA` and concat with `input_B`
 
     Args:
@@ -82,13 +83,13 @@ def upsample_concat(inputA, input_B, name, reuse, size = (2,2)):
     Returns:
         output (4-D Tensor): (N, 2*H, 2*W, C + C2)
     """
-    upsample = upsampling_2D(inputA, size=size,reuse=reuse, name=name)
-    if (input_B==None):
+    upsample = upsampling_2D(inputA, size=size, reuse=reuse,name=name)
+    if (input_B == None):
         return upsample
     return tf.concat([upsample, input_B], axis=-1, name="concat_{}".format(name))
 
 
-def upsampling_2D(tensor, name,reuse, size=(2, 2)):
+def upsampling_2D(tensor, name, reuse,size=(2, 2)):
     """Upsample/Rescale `tensor` by size
 
     Args:
@@ -105,9 +106,8 @@ def upsampling_2D(tensor, name,reuse, size=(2, 2)):
     H_multi, W_multi = size
     target_H = H * H_multi
     target_W = W * W_multi
-    #return tf.layers.conv2d_transpose(tensor, n_in, (3,3), strides=(2,2), name='upsampled_'+str(name)+str(H)+'x'+str(W), reuse=reuse, padding='SAME')
 
-    return tf.image.resize_nearest_neighbor(tensor, (target_H, target_W), name="upsample_{}".format(name))
+    return tf.layers.conv2d_transpose(tensor, n_in, (3,3), strides=(2,2), name='upsampled_'+str(H)+'x'+str(W), reuse=reuse,padding='SAME')#tf.image.resize_nearest_neighbor(tensor, (target_H, target_W), name="upsample_{}".format(name))
 
 
 def make_unet(X, training,n_channels = 3):
@@ -160,7 +160,7 @@ class Unet_models:
         with tf.variable_scope(Ep_scope,reuse = reuse_Ep ):    
             #out,_ = rv2.resnet_v2_50(x,num_classes=self._size_embedding_p)
             out=resnet_18(x, self._size_embedding_p, is_train = training)#resnet_v2.resnet_v2_50(x, num_classes = self._size_embedding_p, reuse=reuse_Ep)
-            out = lrelu(out)#tf.nn.tanh(out)
+            out = tf.nn.tanh(out)
             print('Ep shape!!!')
             
             print(out.get_shape())
@@ -181,19 +181,19 @@ class Unet_models:
 
 
     def Ec(self, x, Ec_scope, reuse_Ec, training = True, make_Unet = False):     
-        x = tf.expand_dims(x[:,:,:,0], axis=-1) #since only single frame image is being used 
+        
         with tf.variable_scope(Ec_scope, reuse = reuse_Ec):
             #conv0_ec, pool0_ec = conv_conv_pool(x,[32,32],training, name=0) 
             pool_0_ec = x
-            conv1_ec, pool1_ec = conv_conv_pool(pool_0_ec, [64, 64], training, name=1) #64
-            conv2_ec, pool2_ec = conv_conv_pool(pool1_ec, [128, 128], training, name=2) #32
-            conv3_ec, pool3_ec = conv_conv_pool(pool2_ec, [256,256,256], training, name=3) #16
-            conv4_ec, pool4_ec = conv_conv_pool(pool3_ec, [512,512,512], training, name=4)#8
-            conv5_ec, pool5_ec = conv_conv_pool(pool4_ec, [512,512,512], training, name = 5)#4
+            conv1_ec, pool1_ec = conv_conv_pool(pool_0_ec, [64], training, name=1) #64
+            conv2_ec, pool2_ec = conv_conv_pool(pool1_ec, [128], training, name=2) #32
+            conv3_ec, pool3_ec = conv_conv_pool(pool2_ec, [128], training, name=3) #16
+            conv4_ec, pool4_ec = conv_conv_pool(pool3_ec, [256], training, name=4)#8
+            conv5_ec, pool5_ec = conv_conv_pool(pool4_ec, [512], training, name = 5)#4
             #conv6_ec, pool6_ec = conv_conv_pool(pool5_ec, [256, 512], training, name=6)
             #print(pool5_ec.get_shape())
             
-            conv6_ec = conv_conv_pool(pool5_ec, [self._size_embedding_c],training,filter_dims = (4,4), custom_activation=True, pool=False,pad_mode = 'valid',activation=tf.nn.tanh, name=6)
+            conv6_ec = conv_conv_pool(pool5_ec, [self._size_embedding_c],training,filter_dims = (4,4), custom_activation = True, pool=False,pad_mode = 'valid',activation=tf.nn.tanh, name=6)
             #conv8_ec = conv_conv_pool(pool7_ec, [512, self._size_embedding_c], activation = tf.nn.sigmoid, training=training, name=8,  pool = False,no_act=False)
             print('Content Encoding Shape')
             print(conv6_ec.get_shape())
@@ -215,19 +215,19 @@ class Unet_models:
             up8 = tf.layers.conv2d_transpose(encoding_content_and_pose, 512,(4,4),name = '8')
             #up8 = upsampling_2D(encoding_content_and_pose,name= 8,size = (4,4))  #1->4
              
-            up9 = upsample_concat(up8, Ulayers[0], name=9) # 4 -> 8 
-            conv9 = conv_conv_pool(up9, [512,512,512], training, name=9, pool=False)
+            up9 = upsample_concat(up8, None, reuse=reuse_D, name=9) # 4 -> 8 
+            conv9 = conv_conv_pool(up9, [512], training, name=9, pool=False)
 
-            up10 = upsample_concat(conv9, Ulayers[1], name=10) #8->16
-            conv10 = conv_conv_pool(up10, [512,512, 256], training, name=10, pool=False)
+            up10 = upsample_concat(conv9, None, reuse=reuse_D, name=10) #8->16
+            conv10 = conv_conv_pool(up10, [256], training, name=10, pool=False)
 
-            up11 = upsample_concat(conv10, Ulayers[2], name=11) #16->32
-            conv11 = conv_conv_pool(up11, [256, 256,128], training, name=11, pool=False)
+            up11 = upsample_concat(conv10, None, reuse=reuse_D, name=11) #16->32
+            conv11 = conv_conv_pool(up11, [128], training, name=11, pool=False)
 
-            up12 = upsample_concat(conv11, Ulayers[3], name=12) #32->64
-            conv12 = conv_conv_pool(up12, [128, 64], training, name=12, pool=False)
+            up12 = upsample_concat(conv11, None, reuse=reuse_D, name=12) #32->64
+            conv12 = conv_conv_pool(up12, [128], training, name=12, pool=False)
 
-            up13 = upsample_concat(conv12,Ulayers[4] , name=13) #64->128
+            up13 = upsample_concat(conv12, None, reuse=reuse_D, name=13) #64->128
             conv13 = conv_conv_pool(up13, [64], training, name=13, pool=False)
 
             
@@ -241,7 +241,7 @@ class Unet_models:
             
             h_Ec, Ulayers = self.Ec(x_ec, Ec_scope,reuse_Ec, training=training,make_Unet = True) 
             h_Ep = tf.expand_dims(tf.expand_dims(h_Ep,axis=1),axis=1)
-            
+            h_Ep_ = tf.layers.conv2d_transpose(h_Ep, self._size_embedding_p,(1,1), (128, 128), name="upsample_{}".format('lol'))
             with tf.variable_scope(D_scope, reuse = reuse_D): 
                 encoding_content_and_pose = tf.concat([h_Ep, h_Ec], axis= -1)
                 #import ipdb;
@@ -251,20 +251,22 @@ class Unet_models:
                 
                 up8 = tf.layers.conv2d_transpose(encoding_content_and_pose, 512,(4,4),name = '8')
                 #up8 = upsampling_2D(encoding_content_and_pose,name= 8,size = (4,4))  #1->4
-                 
-                up9 = upsample_concat(up8, Ulayers[0],reuse=reuse_D, name=9) # 4 -> 8 
-                conv9 = conv_conv_pool(up9, [512,512,512], training, name=9, pool=False)
+                #import ipdb
+                #ipdb.set_trace()
+                up9 = upsample_concat(up8, None, reuse=reuse_D, name=9) # 4 -> 8 
+                conv9 = conv_conv_pool(up9, [512], training, name=9, pool=False)
 
                 up10 = upsample_concat(conv9, Ulayers[1], reuse=reuse_D, name=10) #8->16
-                conv10 = conv_conv_pool(up10, [512,512, 256], training, name=10, pool=False)
+                conv10 = conv_conv_pool(up10, [256], training, name=10, pool=False)
 
                 up11 = upsample_concat(conv10, Ulayers[2], reuse=reuse_D, name=11) #16->32
-                conv11 = conv_conv_pool(up11, [256, 256,128], training, name=11, pool=False)
-
+                conv11 = conv_conv_pool(up11, [128], training, name=11, pool=False)
+                
+                
                 up12 = upsample_concat(conv11, Ulayers[3], reuse=reuse_D, name=12) #32->64
-                conv12 = conv_conv_pool(up12, [128, 64], training, name=12, pool=False)
+                conv12 = conv_conv_pool(up12, [128], training, name=12, pool=False)
 
-                up13 = upsample_concat(conv12,Ulayers[4] , reuse=reuse_D, name=13) #64->128
+                up13 = upsample_concat(conv12, h_Ep_, reuse=reuse_D, name=13) #64->128
                 conv13 = conv_conv_pool(up13, [64], training, name=13, pool=False)
 
                 
@@ -272,6 +274,6 @@ class Unet_models:
                 print('output shape')
                 print(out.get_shape())
 
-            return out, h_Ec
+            return out, h_Ec#[encoding_content_and_pose, conv13, h_Ep, h_Ec]
 
 

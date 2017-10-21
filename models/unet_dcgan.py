@@ -31,8 +31,14 @@ import pandas as pd
 import tensorflow as tf
 import models.resnet_v2 as rv2
 from models.resnet18 import resnet_18 
-
-def conv_conv_pool(input_, n_filters, training, name, filter_dims = (3,3),pool=True, pad_mode = 'same',activation=tf.nn.relu,pool_square_size = 2, no_act=False):
+def lrelu(x, leak=0.2):
+     #with tf.variable_scope(name):
+     #f1 = 0.5 * (1 + leak)
+     #f2 = 0.5 * (1 - leak)
+     
+     #return f1 * x + f2 * abs(x)
+     return tf.maximum(x, x*leak)
+def conv_conv_pool(input_, n_filters, training, name, filter_dims = (3,3),pool=True, pad_mode = 'same',activation=tf.nn.relu,pool_square_size = 2, custom_activation=False):
     """{Conv -> BN -> RELU}x2 -> {Pool, optional}
 
     Args:
@@ -53,15 +59,17 @@ def conv_conv_pool(input_, n_filters, training, name, filter_dims = (3,3),pool=T
         for i, F in enumerate(n_filters):
             net = tf.layers.conv2d(net, F, filter_dims, activation=None, padding=pad_mode, name="conv_{}".format(i + 1))
             net = tf.layers.batch_normalization(net, training=training, name="bn_{}".format(i + 1))
-            if (no_act==False):
+            if (custom_activation==True):
                 net = activation(net, name="relu{}_{}".format(name, i + 1))
-
+            else:
+                net=lrelu(net)
         if pool is False:
             return net
         psz = pool_square_size 
         pool = tf.layers.max_pooling2d(net, (psz, psz), strides=(psz, psz), name="pool_{}".format(name))
 
         return net, pool
+
 
 
 def upsample_concat(inputA, input_B, name, size = (2,2),reuse=True):
@@ -151,7 +159,7 @@ class Unet_models:
         
         with tf.variable_scope(Ep_scope,reuse = reuse_Ep ):    
             #out,_ = rv2.resnet_v2_50(x,num_classes=self._size_embedding_p)
-            out=resnet_18(x, self._size_embedding_p, is_train = training)#resnet_v2.resnet_v2_50(x, num_classes = self._size_embedding_p, reuse=reuse_Ep)
+            out = resnet_18(x, self._size_embedding_p, is_train = training)#resnet_v2.resnet_v2_50(x, num_classes = self._size_embedding_p, reuse=reuse_Ep)
             out = tf.nn.tanh(out)
             print('Ep shape!!!')
             
@@ -175,22 +183,20 @@ class Unet_models:
     def Ec(self, x, Ec_scope, reuse_Ec, training = True, make_Unet = False):     
         
         with tf.variable_scope(Ec_scope, reuse = reuse_Ec):
-            #conv0_ec, pool0_ec = conv_conv_pool(x,[32,32],training, name=0) 
-            pool_0_ec = x
-            conv1_ec, pool1_ec = conv_conv_pool(pool_0_ec, [64], training, name=1) #64
-            conv2_ec, pool2_ec = conv_conv_pool(pool1_ec, [128], training, name=2) #32
-            conv3_ec, pool3_ec = conv_conv_pool(pool2_ec, [256], training, name=3) #16
-            conv4_ec, pool4_ec = conv_conv_pool(pool3_ec, [512], training, name=4)#8
-            conv5_ec, pool5_ec = conv_conv_pool(pool4_ec, [1024], training, name = 5)#4
-            #conv6_ec, pool6_ec = conv_conv_pool(pool5_ec, [256, 512], training, name=6)
-            #print(pool5_ec.get_shape())
+                       
+            conv1_ec, pool1_ec = conv_conv_pool(x, [64], training, name=1) #128 -> 64
+            conv2_ec, pool2_ec = conv_conv_pool(pool1_ec, [128], training, name=2) #64 -> 32
+            conv3_ec, pool3_ec = conv_conv_pool(pool2_ec, [256], training, name=3) #16 -> 8
+            conv4_ec, pool4_ec = conv_conv_pool(pool3_ec, [512], training, name=4)#8 -> 4
+            conv5_ec, pool5_ec = conv_conv_pool(pool4_ec, [1024], training, name = 5)#4 -> 1
+                        
+            conv6_ec = conv_conv_pool(pool5_ec, [self._size_embedding_c],training,filter_dims = (4,4), custom_activation = True, pool=False,pad_mode = 'valid',activation=tf.nn.tanh, name=6)
             
-            conv6_ec = conv_conv_pool(pool5_ec, [self._size_embedding_c],training,filter_dims = (4,4), no_act = False, pool=False,pad_mode = 'valid',activation=tf.nn.tanh, name=6)
-            #conv8_ec = conv_conv_pool(pool7_ec, [512, self._size_embedding_c], activation = tf.nn.sigmoid, training=training, name=8,  pool = False,no_act=False)
             print('Content Encoding Shape')
             print(conv6_ec.get_shape())
+        
         if(make_Unet):
-            return conv6_ec, [conv5_ec, conv4_ec, conv3_ec,conv2_ec, conv1_ec]#conv6_ec, conv5_ec, conv4_ec, conv3_ec, conv2_ec, conv1_ec, conv0_ec]
+            return conv6_ec, [conv5_ec, conv4_ec, conv3_ec,conv2_ec, conv1_ec]
         
         return conv6_ec    
     
@@ -236,8 +242,8 @@ class Unet_models:
             h_Ep_ = tf.layers.conv2d_transpose(h_Ep, self._size_embedding_p,(1,1), (128, 128), name="upsample_{}".format('lol'))
             with tf.variable_scope(D_scope, reuse = reuse_D): 
                 encoding_content_and_pose = tf.concat([h_Ep, h_Ec], axis= -1)
-                import ipdb;
-                ipdb.set_trace()
+                #import ipdb;
+                #ipdb.set_trace()
 
                 #TODO: maybe change dimensionality of encoding_content_and_pose first?
                 

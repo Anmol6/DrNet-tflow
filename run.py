@@ -5,7 +5,10 @@ import os
 import math 
 import ipdb
 
-from models.unet_vgg import Unet_models as Unet_model
+
+#Import the models here
+#from models.unet_vgg import Unet_models as Unet_model
+from models.unet_dcgan import Unet_models as Unet_model
 from models.pose_encoder import pose_discriminator_tflow as C
 from data_utils import reader
 from tensorflow.python.client import device_lib
@@ -68,7 +71,7 @@ def train():
     
     frame_list = [k2, kp1, kc1, kc2]
        
- 
+    #with tf.device('/gpu:1'):
     video, label = reader.read_and_decode(filename_queue,bs,FLAGS.crop_height, FLAGS.crop_width,num_frames = 3, resized_height = FLAGS.resized_height, resized_width = FLAGS.resized_width, frame_is_random=True, rand_frame_list = FLAGS.max_steps, resize_image = True, crop_with_pad = True, rand_crop = False, resize_image_0=False, dataset = FLAGS.dataset, div_by_255 = True, max_steps = FLAGS.max_steps, train_drnet=True) 
     video_batch, label_batch = tf.train.shuffle_batch([video, label],
     batch_size=int(FLAGS.num_gpus*FLAGS.batch_size),
@@ -77,21 +80,24 @@ def train():
     min_after_dequeue=100)
     print('BATCH SHAPE')
     print(video_batch.get_shape())
-    video_batch = tf.to_float(video_batch)
+    video_batch = tf.to_float(video_batch)    
     tf.summary.scalar('video_mean', tf.reduce_mean(video_batch))
-    
+
   
     model = Unet_model(FLAGS.size_pose_embedding, FLAGS.size_content_embedding)
     losses_C = []
     losses_Ep = []
     losses_Ec = []
     losses_D = []
-    import ipdb
-    ipdb.set_trace()
+    
+    
     with tf.name_scope('drnet') as scope:    
+        C_target_npy = np.ones(shape = [FLAGS.batch_size,1])
+        C_target_npy[bs_2:,0] = 0
+        C_target = tf.constant(C_target_npy, dtype=tf.float64)
         for i in range(FLAGS.num_gpus):
             reuse_flag = (i>0)
-            with tf.name_scope('tower_'+str(i)), tf.device('/gpu:' + str(i)):
+            with tf.name_scope('tower_Closs_'+str(i)), tf.device('/gpu:' + str(i)):
                 print('GPU' + str(i))
                 video_batch_tower = tf.slice(video_batch, begin = [i*bs, 0,0,0,0], size = [bs,-1,-1,-1,-1])
                 
@@ -117,10 +123,6 @@ def train():
                 print(C_batch.shape) 
                 
                 #Get tower loss for C
-                C_target_npy = np.ones(shape = [FLAGS.batch_size,1])
-                C_target_npy[bs_2:,0] = 0
-                C_target = tf.constant(C_target_npy, dtype=tf.float64)
-                
                 with tf.variable_scope(FLAGS.C_scope,reuse=reuse_flag) as C_scope:
                     C_out = C(C_batch) #make sure C_out doesn't backprop to Ep
                                
@@ -137,9 +139,11 @@ def train():
         total_loss_C = FLAGS.beta*tf.reduce_mean(losses_C)
         tf.summary.scalar('total loss C', total_loss_C)
         train_C = tf.train.AdamOptimizer(learning_rate=FLAGS.lr).minimize(total_loss_C, var_list  = C_vars)
-                
+        
+        C_target_Ep = tf.constant(0.5*np.ones(shape = [FLAGS.batch_size,1]), dtype=tf.float64) #maximize entropy        
+        
         for i in range(FLAGS.num_gpus):
-            with tf.name_scope('tower_'+str(i)), tf.device('/gpu:' + str(i)), tf.control_dependencies([train_C]):
+            with tf.name_scope('tower_D_Ep_Ec_loss_'+str(i)), tf.device('/gpu:' + str(i)), tf.control_dependencies([train_C]):
                 reuse_flag = (i>0)
                 print('GPU' + str(i))
                 video_batch_tower = tf.slice(video_batch, begin = [i*FLAGS.batch_size, 0,0,0,0], size = [FLAGS.batch_size,-1,-1,-1,-1])
@@ -162,7 +166,6 @@ def train():
                 
                  
                 #Get tower loss of E_p
-                C_target_Ep = tf.constant(0.5*np.ones(shape = [FLAGS.batch_size,1])) #maximize entropy
                 with tf.variable_scope(FLAGS.C_scope,reuse = True):
                     C_Ep_out = C(C_batch_Ep)
                 tf.summary.scalar('Cout_duringEptraining'+str(i), tf.reduce_mean(C_Ep_out))
@@ -219,7 +222,14 @@ def train():
 
         total_loss_D = FLAGS.alpha_2*tf.reduce_mean(losses_D)
         tf.summary.scalar('total loss D', total_loss_D)
-
+        
+        with tf.control_dependencies([total_loss_Ep, total_loss_Ec, total_loss_D]):
+            if(FLAGS.adv_loss):
+                total_loss = total_loss_Ep + total_loss_Ec + total_loss_D
+            else:
+                total_loss = total_loss_Ec + total_loss_D
+            train_ec_ep_d = tf.train.AdamOptimizer(learning_rate=FLAGS.lr, beta1=0.5).minimize(total_loss, var_list=Ep_vars+Ec_vars+D_vars)
+        '''
         with tf.control_dependencies([total_loss_Ep, total_loss_Ec, total_loss_D]):
             train_Ep = tf.train.AdamOptimizer(learning_rate=FLAGS.lr).minimize(total_loss_Ep, var_list = Ep_vars)
             train_Ec = tf.train.AdamOptimizer(learning_rate=FLAGS.lr).minimize(total_loss_Ec, var_list = Ec_vars)
@@ -228,7 +238,7 @@ def train():
                 train_ec_ep_d = tf.group(train_Ep, train_Ec, train_D)
             else:
                 train_ec_ep_d = tf.group(train_Ec, train_D)
-    
+        '''
     dlEp_DEp = tf.gradients(total_loss_Ep, [hp2])
     dlD_DEp = tf.gradients(total_loss_D, [hp2])    
     dlC_DEp = tf.gradients(total_loss_C, [hp1])
@@ -251,7 +261,7 @@ def train():
     tf.summary.histogram('dc_ep1', dc_ep1)
  
     
-    config = tf.ConfigProto(allow_soft_placement=True)
+    config = tf.ConfigProto(log_device_placement=True, allow_soft_placement=True)
     config.gpu_options.allow_growth = True
     sess = tf.Session(config=config)
     
@@ -340,8 +350,8 @@ def main():
     flags.DEFINE_integer('check_output_freq', 100, 'how often to check output (to make sure things are working)')
     flags.DEFINE_float('alpha', 1.0, 'alpha term in total loss')
     flags.DEFINE_float('alpha_2', 1.0, 'alpha for decoder loss')
-    flags.DEFINE_float('beta', 0.001, 'beta term in total loss')
-    flags.DEFINE_float('beta_2', 0.001, 'another thing')
+    flags.DEFINE_float('beta', 0.0001, 'beta term in total loss')
+    flags.DEFINE_float('beta_2', 0.0001, 'another thing')
     flags.DEFINE_float('lr', '0.002', 'learning rate')
     flags.DEFINE_string('train_data_dir', '/mnt/AIDATA/datasets/kth/tfrecords_drnetsplit/train/', 'directory of training data(tfrecord files)')
     flags.DEFINE_string('dataset', 'kth', 'name of dataset, specified to reader')

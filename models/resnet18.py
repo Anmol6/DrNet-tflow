@@ -107,7 +107,8 @@ def fc( x, out_dim, input_q=None, output_q=None, name="fc"):
     return x
 
 def bn( x, is_train, name="bn"):
-    x = utils._bn(x, is_train,  name)
+    x=tf.layers.batch_normalization(x, training=is_train, trainable=True, name=name)
+    #x = utils._bn(x, is_train,  name)
     # f = 8 * get_data_size(x)
     # w = 4 * x.get_shape().as_list()[-1]
     # scope_name = tf.get_variable_scope().name + "/" + name

@@ -1,9 +1,9 @@
 image: images.borgy.elementai.lan/anmol/anmol_test
-command: bash -c "python /mnt/AIDATA/home/anmol/DrNet-tflow/run.py --num_gpus 2 --batch_size 32 --size_pose_embedding 5 --size_content_embedding 128 --max_steps 12 --num_epochs 2000 --run_name test_batch_size64_twogpus"
+command: bash -c "python /mnt/AIDATA/home/anmol/DrNet-tflow/run.py --num_gpus 1 --batch_size 70 --size_pose_embedding 5 --size_content_embedding 128 --max_steps 12 --num_epochs 2000 --run_name test_batch_size70_onegpu_oneextr_dcganunet2"
 name: anmol1
 reqCores: 20
 reqGpus: 2
-reqRamGbytes: 100
+reqRamGbytes: 200
 volumes:
   - /mnt/AIDATA/:/mnt/AIDATA/
   
