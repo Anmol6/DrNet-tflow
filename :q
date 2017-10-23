@@ -1,0 +1,9 @@
+image: images.borgy.elementai.lan/anmol/anmol_test
+command: bash -c "python /mnt/AIDATA/home/anmol/DrNet-tflow/run.py --num_gpus 5 --batch_size 20 --size_pose_embedding 5 --size_content_embedding 128 --max_steps 12 --num_epochs 2000 --run_name dcganUnet_dcganep_bs100 --adv_loss False"
+name: anmol1
+reqCores: 20
+reqGpus: 6
+reqRamGbytes: 160
+volumes:
+  - /mnt/AIDATA/:/mnt/AIDATA/
+  

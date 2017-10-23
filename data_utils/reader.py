@@ -66,6 +66,7 @@ def read_and_decode(filename_queue, batch_size,crop_height, crop_width, num_fram
     # Convert from a scalar string tensor (whose single string has
     # length mnist.IMAGE_PIXELS) to a uint8 tensor with shape
     # [mnist.IMAGE_PIXELS].
+    
     print(type(features['video/encoded']))
     print(type(features['video/name']))
     video = tf.decode_raw(features['video/encoded'],tf.uint8)
@@ -80,23 +81,12 @@ def read_and_decode(filename_queue, batch_size,crop_height, crop_width, num_fram
     # question linked above.
     #print(type(video))
         
-    '''    
-    if (dataset=='ucf'):
-        num_frames_total = 25
-        h0 = 240
-        w0 = 320        
-        video = tf.reshape(video, [num_frames_total, h0, w0, num_channels])
-    '''
     if(dataset == 'kth'):
         h0 = 120 
         w0 = 160
         video = tf.reshape(video, [-1, h0,w0, num_channels])
 
-    if(center_image and dataset == 'ucf'):
-        mean = tf.constant(np.load('data_utils/ucftruemean.npy').astype('float32'))
-        video = tf.to_float(video) - mean
-   
-    
+        
     if (resize_image_0):
         video = tf.cond(height>width, lambda:tf.image.resize_images(video, size = [height*tf.cast(tf.floor(resized_small/width),tf.int32), resized_small]),lambda:tf.image.resize_images(video, size = [resized_small, width*(tf.cast(tf.floor(resized_small/height),tf.int32))]))
         video.set_shape([-1, 256, 341, 3])#TODO: have a function for this
@@ -106,20 +96,26 @@ def read_and_decode(filename_queue, batch_size,crop_height, crop_width, num_fram
             
     if frame_is_random:
         if(train_drnet):
-            offset_first_image = tf.random_uniform(shape = [],minval = 0, maxval=num_framestf-max_steps-2,dtype=tf.int64)
-            #offset_second_image = tf.random_uniform(shape = [],minval = offset_first_image+1, maxval=offset_first_image+max_steps,dtype=tf.int64)
-            #offset_third_image = tf.random_uniform(shape = [],minval = offset_first_image+1, maxval=offset_first_image+max_steps,dtype=tf.int64)
+            offset_one = tf.random_uniform(shape = [],minval = 0, maxval=num_framestf-max_steps-3,dtype=tf.int64)
+            offset_two = tf.random_uniform(shape = [], minval=offset_one+1, maxval=offset_one+max_steps, dtype=tf.int64)
+            offset_three = tf.random_uniform(shape = [], minval=offset_one+1, maxval=offset_one+max_steps, dtype=tf.int64)
+            offset_four = tf.random_uniform(shape = [], minval=offset_one+1, maxval=offset_one+max_steps, dtype=tf.int64)
+            offset_five = tf.random_uniform(shape = [], minval=offset_one+1, maxval=offset_one+max_steps, dtype=tf.int64)
 
-            frame_list = tf.linspace(tf.cast(offset_first_image, tf.float32), tf.cast(offset_first_image+max_steps-1, tf.float32), max_steps)
-            video = tf.gather(video, indices = tf.cast(frame_list, tf.int64))
-            num_frames = max_steps      
-        elif (rand_frame_list == None):
+            frame_list = [offset_one, offset_two, offset_three, offset_four, offset_five]
+            #frame_list = tf.linspace(tf.cast(offset_first_image, tf.float32), tf.cast(offset_first_image+max_steps-1, tf.float32), max_steps)
+            video = tf.gather(video, indices = frame_list)
+            num_frames = 5
+
+        #elif (rand_frame_list == None):
             rand_frame_index = tf.floor(num_frames_total*tf.random_uniform([1], minval = 0.0, maxval = 1.0))[0]
             rand_frame_index = tf.cast(rand_frame_index, tf.int64)
             video = tf.slice(video, begin = [rand_frame_index,0,0,0],size = [1,-1,-1,-1])
 
-        else:
-            video = tf.gather(video, indices = rand_frame_list)
+        else: 
+            first_index = tf.random_uniform(shape=[], minval=0, maxval=num_framestf-num_frames-3, dtype=tf.int64)
+            frame_list = tf.linspace(tf.to_float(first_index), tf.to_float(first_index+num_frames-1), num_frames)
+            video = tf.gather(video, indices = tf.cast(frame_list, tf.int64))
         #video = tf.expand_dims(video, axis=0)
     else:
         slice_indices = tf.linspace(0,num_framestf-1, num_frames,dtype=np.int64)
@@ -143,6 +139,7 @@ def read_and_decode(filename_queue, batch_size,crop_height, crop_width, num_fram
     
     print('Video size')
     print(video.get_shape())
+    
     if(div_by_255):
         video = tf.divide(tf.to_float(video),tf.constant(255.0))
     

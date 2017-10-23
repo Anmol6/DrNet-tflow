@@ -1,7 +1,8 @@
 import tensorflow as tf
 import matplotlib.pyplot as plt
-from models.unet2 import Unet_models as Unet_model
+#from models.unet2 import Unet_models as Unet_model
 from models.pose_encoder import pose_discriminator_tflow as C
+from models.unet_dcgan import Unet_models as Unet_model
 from models.lstm_model import make_lstm_cell
 import numpy as np
 import os
@@ -52,15 +53,15 @@ def train():
         filename_queue = tf.train.string_input_producer(filenames, num_epochs = FLAGS.num_epochs)
     
     
-    start_index = tf.random_uniform(shape = [],minval = 0, maxval=FLAGS.max_start_index,dtype=tf.int64)
-    frame_list = tf.linspace(tf.to_float(start_index), tf.to_float(start_index + FLAGS.num_steps_total),tf.constant(FLAGS.num_steps_total+1,dtype=tf.int32), name = "frame_list")
-    frame_list = tf.cast(frame_list, tf.int64)
+    #start_index = tf.random_uniform(shape = [],minval = 0, maxval=FLAGS.max_start_index,dtype=tf.int64)
+    #frame_list = tf.linspace(tf.to_float(start_index), tf.to_float(start_index + FLAGS.num_steps_total),tf.constant(FLAGS.num_steps_total+1,dtype=tf.int32), name = "frame_list")
+    #frame_list = tf.cast(frame_list, tf.int64)
                
-    video, label = reader.read_and_decode(filename_queue,FLAGS.batch_size,FLAGS.crop_height, FLAGS.crop_width,num_frames =FLAGS.num_steps_total+1 , resized_height = FLAGS.resized_height, resized_width = FLAGS.resized_width,frame_is_random=True, rand_frame_list = frame_list, resize_image = True, crop_with_pad = False, rand_crop = False, resize_image_0 = False,dataset = FLAGS.dataset, train_drnet=False) #TODO 
+    video, label = reader.read_and_decode(filename_queue,FLAGS.batch_size,FLAGS.crop_height, FLAGS.crop_width,num_frames =FLAGS.num_steps_total+1, resized_height = FLAGS.resized_height, resized_width = FLAGS.resized_width,frame_is_random=True, rand_frame_list = None, resize_image = True, crop_with_pad = False, rand_crop = False, resize_image_0 = False,dataset = FLAGS.dataset, train_drnet=False) #TODO 
     
     video_batch, label_batch = tf.train.shuffle_batch([video, label],
     batch_size=int(FLAGS.num_gpus*FLAGS.batch_size),
-    num_threads=2,
+    num_threads=10,
     capacity=2000 + 3 * FLAGS.batch_size,
     min_after_dequeue=100)
     print('BATCH SHAPE')
@@ -97,8 +98,7 @@ def train():
                 tf.summary.scalar('hc_frame_first',tf.reduce_mean(hc_frame_first))
                 
                 outputs = [None]*FLAGS.num_steps_total
-                #import ipdb;
-                #ipdb.set_trace()
+                
                 #process input for first num_steps_observed timesteps, start auto-regressing afterwards
                 for t in range(FLAGS.num_steps_total):
 
@@ -108,7 +108,8 @@ def train():
                     else:
                         assert t>0
                         x_in = tf.concat([outputs[t-1], hc_frame_first],axis=1)
-                    out, state = cell(x_in,state)#reuse = (i>0 or t>0))
+                    
+                    out, state = cell(x_in, state)#reuse = (i>0 or t>0))
                     outputs[t] = tf.layers.dense(out, FLAGS.size_pose_embedding, activation = tf.nn.tanh, reuse = (i>0 or t>0), name = FLAGS.dense_scope) 
                 #decode output from time num_steps_observed -> num_steps_total
                 
@@ -128,10 +129,8 @@ def train():
                     frame_true[t], debug_list = model.D_hp_given(frame_first, FLAGS.Ec_scope, True, hp_targets[:,t,:], FLAGS.D_scope, reuse_D = True, training = FLAGS.training)#only for debugging
                 frame_predictions = tf.stack(frame_predictions, axis=1)
                 frame_true = tf.stack(frame_true, axis=1)
-                #import ipdb;
-                #ipdb.set_trace()
-                #frame_predictions = tf.stack(frame_predictions, axis = 1)
-     
+                
+                    
     loss_final = tf.reduce_mean(total_l2_loss_Ep)
     tf.summary.scalar('Ep_l2_loss', loss_final)                
         
@@ -189,10 +188,7 @@ def train():
     D_loader = tf.train.Saver(D_vars)
     
 
-    restore_dir_Ep = './ckpt_4/r5/Ep/lol-5400'
-    restore_dir_Ec = './ckpt_4/r5/Ec/lol-5400'
-    restore_dir_D = './ckpt_4/r5/D/lol-5400' 
-    
+        
     lstm_Saver = tf.train.Saver(lstm_vars, max_to_keep = 100)
     lstm_loader = tf.train.Saver(lstm_vars)
      
@@ -201,8 +197,8 @@ def train():
         os.makedirs(ckptdir)
     if not os.path.exists(logdir):
         os.makedirs(logdir)
-    import ipdb;
-    ipdb.set_trace()
+    
+
     try:
         i = 0    
         while not coord.should_stop(): 
@@ -210,20 +206,19 @@ def train():
             print('step '+str(i))
             
             if(i==0):
-                if(FLAGS.load_all):
-                    Ep_loader.restore(sess, restore_dir_Ep)
-                    Ec_loader.restore(sess, restore_dir_Ec)
-                    D_loader.restore(sess, restore_dir_D)
-                    #TODO: add lstm loading directory
+                if(FLAGS.evaluate):
+                    Ep_loader.restore(sess, FLAGS.restore_dir_Ep)
+                    Ec_loader.restore(sess, FLAGS.restore_dir_Ec)
+                    D_loader.restore(sess, FLAGS.restore_dir_D)
+                    lstm_loader.restore(sess, FLAGS.restore_dir_lstm)
 
-                else:#TODO
-                    Ep_loader.restore(sess, restore_dir_Ep)
-                    Ec_loader.restore(sess, restore_dir_Ec)
-                    D_loader.restore(sess, restore_dir_D)
-
-                import ipdb;
-                ipdb.set_trace()
-                   
+                else:
+                    print('loading model for training...')
+                    Ep_loader.restore(sess, FLAGS.restore_dir_Ep)
+                    Ec_loader.restore(sess, FLAGS.restore_dir_Ec)
+                    D_loader.restore(sess, FLAGS.restore_dir_D)
+                    print('model loaded')
+                  
             # write summary
             if(i%FLAGS.log_freq==0):
                 print('Logging')
@@ -268,29 +263,36 @@ def main():
     flags.DEFINE_integer('resized_height',128,'Size to which resize image')
     flags.DEFINE_integer('resized_width', 128, 'Size to which resize image')
     flags.DEFINE_integer('num_epochs_discriminator', 1, 'num of epochs to train discriminator')
-    flags.DEFINE_integer('num_epochs', 100, 'total number of training epochs')
-    flags.DEFINE_integer('num_iters', 100000, 'number of training iterations')
-    flags.DEFINE_integer('size_pose_embedding', 10, 'size of pose embedding')
+    flags.DEFINE_integer('num_epochs', 1000000, 'total number of training epochs')
+    flags.DEFINE_integer('num_iters', 1000000, 'number of training iterations')
+    flags.DEFINE_integer('size_pose_embedding', 5, 'size of pose embedding')
     flags.DEFINE_integer('size_content_embedding', 128, 'size of content embedding')
     flags.DEFINE_integer('state_size', 256, 'size of lstm state')
     flags.DEFINE_integer('num_layers', 2, 'num of lstm layers')
     flags.DEFINE_bool('load_all', False, 'whether to load everything or exclude lstm')
     flags.DEFINE_bool('training', True, 'whether training or not')
+    flags.DEFINE_bool('evaluate', False, 'Whether generating video')
     flags.DEFINE_integer('log_freq', 10, 'freq to save summaries')
-    flags.DEFINE_integer('log_npy_freq', 50, 'frequency at which numpys are saved')
-    flags.DEFINE_string('train_data_dir', '/mnt/AIDATA/datasets/kth/tfrecords/train/', 'directory of training data(tfrecord files)')
+    flags.DEFINE_integer('log_npy_freq', 1000, 'frequency at which numpys are saved')
+    flags.DEFINE_string('train_data_dir', '/mnt/AIDATA/datasets/kth/tfrecords_drnetsplit/train/', 'directory of training data(tfrecord files)')
 
     
     flags.DEFINE_string('dataset', 'kth', 'name of dataset, specified to reader')
-    flags.DEFINE_string('log_dir', './logs_lstm_3/', 'Directory where to write logs')
-    flags.DEFINE_string('run_name', 'init', 'name of run')
+    flags.DEFINE_string('log_dir', '/mnt/AIDATA/home/anmol/DrNet-tflow/logs_lstm/', 'Directory where to write logs')
+    flags.DEFINE_string('run_name', '128-x128_bs50', 'name of run')
     flags.DEFINE_string('Ep_scope', 'Ep', 'scope of pose encoder')
     flags.DEFINE_string('Ec_scope', 'Ec', 'scope of content encoder')
     flags.DEFINE_string('D_scope', 'D', 'scope of decoder')
     flags.DEFINE_string('dense_scope', 'dense_after_lstm', 'scope of dense layer after lstm')
     flags.DEFINE_string('lstm_scope', 'multi_rnn_cell/', 'scope of lstm')
-    flags.DEFINE_integer('save_freq', '100', 'how often to save model')          
-    flags.DEFINE_string('checkpoints_dir', './ckpt_5', 'directory where checkpoints will be saved' )
+
+    flags.DEFINE_integer('save_freq', '500', 'how often to save model')          
+    flags.DEFINE_string('restore_dir_Ep', '/mnt/AIDATA/home/anmol/DrNet-tflow/ckpt_6/test1/Ep/lol-4000', 'directory where to load Pose Encoder from')
+    flags.DEFINE_string('restore_dir_Ec', '/mnt/AIDATA/home/anmol/DrNet-tflow/ckpt_6/test1/Ec/lol-4000', 'directory where to load Content Encoder from')
+
+    flags.DEFINE_string('restore_dir_D', '/mnt/AIDATA/home/anmol/DrNet-tflow/ckpt_6/test1/D/lol-4000', 'directory where to load Decoder from')
+    flags.DEFINE_string('restore_dir_lstm', '', 'directory to load lstm from')
+    flags.DEFINE_string('checkpoints_dir', '/mnt/AIDATA/ckpt_lstm/', 'directory where checkpoints will be saved' )
     
     train()
 
