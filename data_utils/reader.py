@@ -29,6 +29,7 @@ def float_feature(value):
     return tf.train.Feature(float_list=tf.train.FloatList(value=[value]))
 
 def read_and_decode(filename_queue, batch_size,crop_height, crop_width, num_frames, num_channels=3,frame_is_random = False, rand_frame_list = None, center_image = True, resize_image_0 = True, resize_image = False, rand_crop = True, rand_flip = False,is_training = True,resized_small = 256,  resized_height = 224, resized_width = 224, crop_with_pad = False, get_name = False, crop_center = False,train_drnet = True, div_by_255 = True, max_steps = 12, dataset = 'ucf'):
+    
     """Preprocessing for  video data 
     :param filename_queue: queue of files to read
     :param crop_height: height of cropped frame
@@ -46,7 +47,7 @@ def read_and_decode(filename_queue, batch_size,crop_height, crop_width, num_fram
     :param max_steps: how far the next frames can be from the first frame, integer
     :param get_name: whether to return name of video
     :param center_crop: whether to do central cropping of image
-    :param train_drnet: whether to use custom drnet scheme for getting frames, Boolean
+    :param train_drnet: whether training drnet or lstm (True if training drnet), Boolean
     """
 
 
@@ -69,6 +70,7 @@ def read_and_decode(filename_queue, batch_size,crop_height, crop_width, num_fram
     
     print(type(features['video/encoded']))
     print(type(features['video/name']))
+    
     video = tf.decode_raw(features['video/encoded'],tf.uint8)
     name = tf.cast(features['video/name'], tf.string) 
     height = tf.cast(features['video/height'], tf.int32)
@@ -76,11 +78,8 @@ def read_and_decode(filename_queue, batch_size,crop_height, crop_width, num_fram
     width = tf.cast(features['video/width'], tf.int32)
     num_framestf = tf.cast(features['video/num_frames'], tf.int64)
     label = features['video/class/label']
-    # Random transformations can be put here: right before you crop images
-    # to predefined size. To get more information look at the stackoverflow
-    # question linked above.
-    #print(type(video))
-        
+    
+               
     if(dataset == 'kth'):
         h0 = 120 
         w0 = 160
@@ -137,9 +136,7 @@ def read_and_decode(filename_queue, batch_size,crop_height, crop_width, num_fram
     if(resize_image): 
         video = tf.reshape(video, [num_frames, resized_height,resized_width, num_channels])
     
-    print('Video size')
-    print(video.get_shape())
-    
+        
     if(div_by_255):
         video = tf.divide(tf.to_float(video),tf.constant(255.0))
     
@@ -175,48 +172,4 @@ def build_queue(dir,num_frames, batch_size = 50, num_epochs = 5,crop_height = 64
     return video_batch, label_batch
 
 
-
-
-def read_tfrecords_file(tfrecords_filename):
-	record_iterator = tf.python_io.tf_record_iterator(path=tfrecords_filename)
-	vids = []
-	names = []
-	dims = []
-	for string_record in record_iterator:
-	    
-	    example = tf.train.Example()
-	    example.ParseFromString(string_record)
-	    #print(type(example.features.feature['image/height'].int64_list.value))
-	    #print(example.ListFields())
-
-
-	    height = int(example.features.feature['video/height'].int64_list.value[0])
-	    
-	    width = int(example.features.feature['video/width'].int64_list.value[0])
-	    
-	    vid_string = (example.features.feature['video/encoded'].bytes_list.value[0])
-	    
-	    name_string = (example.features.feature['video/name'].bytes_list.value[0])
-	    label_string = (example.features.feature['video/class/label'].bytes_list.value)
-	    #print(name_string)
-	    #print(label_string)
-
-	    vid_1d = np.fromstring(vid_string, dtype=np.uint8)
-	    reconstructed_vid = vid_1d.reshape((-1, height, width, 3))
-	    dims.append([height,width])
-	    vids.append(reconstructed_vid)
-	    names.append(name_string)
-	    #vids.append(reconstructed_vid)
-	return vids,names,dims
-
-if (__name__ == "__main__"):
-	#tfrecord_dir = '/home/anmol/projects/kinetics-baseline/data/ucf101_tfrecord_files/train-00001-of-00095.tfrecords'
-        tfrecord_dir = '/mnt/AIDATA/anmol/ucf_tfrecords_01/train_tfrecords/train-00001-of-00095.tfrecords'
-        
-        vids,names,dims = read_tfrecords_file(tfrecord_dir)
-        print('DONE')
-        print(np.array(vids).shape)
-        print(np.array(dims).shape)
-        np.save('vidtestnew.npy', vids)
-        np.save('dimsnew.npy', dims)
 

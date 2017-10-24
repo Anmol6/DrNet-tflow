@@ -61,7 +61,7 @@ def train():
     
     video_batch, label_batch = tf.train.shuffle_batch([video, label],
     batch_size=int(FLAGS.num_gpus*FLAGS.batch_size),
-    num_threads=10,
+    num_threads=20,
     capacity=2000 + 3 * FLAGS.batch_size,
     min_after_dequeue=100)
     print('BATCH SHAPE')
@@ -279,7 +279,7 @@ def main():
     
     flags.DEFINE_string('dataset', 'kth', 'name of dataset, specified to reader')
     flags.DEFINE_string('log_dir', '/mnt/AIDATA/home/anmol/DrNet-tflow/logs_lstm/', 'Directory where to write logs')
-    flags.DEFINE_string('run_name', '128-x128_bs50', 'name of run')
+    flags.DEFINE_string('run_name', '128x128_bs50_', 'name of run')
     flags.DEFINE_string('Ep_scope', 'Ep', 'scope of pose encoder')
     flags.DEFINE_string('Ec_scope', 'Ec', 'scope of content encoder')
     flags.DEFINE_string('D_scope', 'D', 'scope of decoder')
@@ -287,10 +287,10 @@ def main():
     flags.DEFINE_string('lstm_scope', 'multi_rnn_cell/', 'scope of lstm')
 
     flags.DEFINE_integer('save_freq', '500', 'how often to save model')          
-    flags.DEFINE_string('restore_dir_Ep', '/mnt/AIDATA/home/anmol/DrNet-tflow/ckpt_6/test1/Ep/lol-4000', 'directory where to load Pose Encoder from')
-    flags.DEFINE_string('restore_dir_Ec', '/mnt/AIDATA/home/anmol/DrNet-tflow/ckpt_6/test1/Ec/lol-4000', 'directory where to load Content Encoder from')
+    flags.DEFINE_string('restore_dir_Ep', '/mnt/AIDATA/home/anmol/DrNet-tflow/ckpt_6/test1/Ep/lol-60000', 'directory where to load Pose Encoder from')
+    flags.DEFINE_string('restore_dir_Ec', '/mnt/AIDATA/home/anmol/DrNet-tflow/ckpt_6/test1/Ec/lol-60000', 'directory where to load Content Encoder from')
 
-    flags.DEFINE_string('restore_dir_D', '/mnt/AIDATA/home/anmol/DrNet-tflow/ckpt_6/test1/D/lol-4000', 'directory where to load Decoder from')
+    flags.DEFINE_string('restore_dir_D', '/mnt/AIDATA/home/anmol/DrNet-tflow/ckpt_6/test1/D/lol-60000', 'directory where to load Decoder from')
     flags.DEFINE_string('restore_dir_lstm', '', 'directory to load lstm from')
     flags.DEFINE_string('checkpoints_dir', '/mnt/AIDATA/ckpt_lstm/', 'directory where checkpoints will be saved' )
     
