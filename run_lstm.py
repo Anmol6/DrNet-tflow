@@ -1,6 +1,5 @@
 import tensorflow as tf
 import matplotlib.pyplot as plt
-#from models.unet2 import Unet_models as Unet_model
 from models.pose_encoder import pose_discriminator_tflow as C
 from models.unet_dcgan import Unet_models as Unet_model
 from models.lstm_model import make_lstm_cell
@@ -38,7 +37,7 @@ def print_vars(var_list):
         print(name)
 
 def train():
-    """Trains LSTM on DrNet embeddings
+    """Trains LSTM on DrNet Pose embeddings
 
     """
         
@@ -51,12 +50,8 @@ def train():
   
     with tf.name_scope('input'):
         filename_queue = tf.train.string_input_producer(filenames, num_epochs = FLAGS.num_epochs)
-    
-    
-    #start_index = tf.random_uniform(shape = [],minval = 0, maxval=FLAGS.max_start_index,dtype=tf.int64)
-    #frame_list = tf.linspace(tf.to_float(start_index), tf.to_float(start_index + FLAGS.num_steps_total),tf.constant(FLAGS.num_steps_total+1,dtype=tf.int32), name = "frame_list")
-    #frame_list = tf.cast(frame_list, tf.int64)
-               
+       
+                   
     video, label = reader.read_and_decode(filename_queue,FLAGS.batch_size,FLAGS.crop_height, FLAGS.crop_width,num_frames =FLAGS.num_steps_total+1, resized_height = FLAGS.resized_height, resized_width = FLAGS.resized_width,frame_is_random=True, rand_frame_list = None, resize_image = True, crop_with_pad = False, rand_crop = False, resize_image_0 = False,dataset = FLAGS.dataset, train_drnet=False) #TODO 
     
     video_batch, label_batch = tf.train.shuffle_batch([video, label],
