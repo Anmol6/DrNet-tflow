@@ -102,15 +102,9 @@ def read_and_decode(filename_queue, batch_size,crop_height, crop_width, num_fram
             offset_five = tf.random_uniform(shape = [], minval=offset_one+1, maxval=offset_one+max_steps, dtype=tf.int64)
 
             frame_list = [offset_one, offset_two, offset_three, offset_four, offset_five]
-            #frame_list = tf.linspace(tf.cast(offset_first_image, tf.float32), tf.cast(offset_first_image+max_steps-1, tf.float32), max_steps)
             video = tf.gather(video, indices = frame_list)
             num_frames = 5
-
-        #elif (rand_frame_list == None):
-            rand_frame_index = tf.floor(num_frames_total*tf.random_uniform([1], minval = 0.0, maxval = 1.0))[0]
-            rand_frame_index = tf.cast(rand_frame_index, tf.int64)
-            video = tf.slice(video, begin = [rand_frame_index,0,0,0],size = [1,-1,-1,-1])
-
+             
         else: 
             first_index = tf.random_uniform(shape=[], minval=0, maxval=num_framestf-num_frames-3, dtype=tf.int64)
             frame_list = tf.linspace(tf.to_float(first_index), tf.to_float(first_index+num_frames-1), num_frames)
